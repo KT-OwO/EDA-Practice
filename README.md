@@ -1,2 +1,2 @@
 # EDA-Practice
-Practice KafkaEventDrivenArchitecture using Apache Kafka
+Practice EventDrivenArchitecture using Apache Kafka
