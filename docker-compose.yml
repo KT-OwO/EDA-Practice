@@ -1,0 +1,88 @@
+services:
+  # Kafka互換ブローカー（Redpanda: Zookeeper不要で軽量）
+  redpanda:
+    image: vectorized/redpanda:latest
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp=1
+      - --memory=1G
+      - --reserve-memory=0M
+      - --check=false
+    ports:
+      - "9092:9092"    # Kafka API
+      - "9644:9644"    # Admin API (Redpanda UI endpoint)
+    volumes:
+      - redpanda_data:/var/lib/redpanda
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster info || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # イベント発生用データベース（Postgres）
+  eventdb:
+    image: postgres:15
+    container_name: eventdb
+    environment:
+      POSTGRES_USER: event_user
+      POSTGRES_PASSWORD: event_pass
+      POSTGRES_DB: events
+    ports:
+      - "5432:5432"
+    volumes:
+      - eventdb_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U event_user -d events"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  # DB監視用Web UI（pgweb） - 軽量のPostgres用Web UI
+  pgweb:
+    image: sosedoff/pgweb:latest
+    container_name: pgweb
+    environment:
+      DATABASE_URL: "postgres://event_user:event_pass@eventdb:5432/events?sslmode=disable"
+    ports:
+      - "8081:8081"
+    depends_on:
+      - eventdb
+
+  # プロデューサー（サンプル Python アプリ）
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile
+    container_name: producer
+    environment:
+      KAFKA_BOOTSTRAP: "redpanda:9092"
+      POSTGRES_HOST: eventdb
+      POSTGRES_DB: events
+      POSTGRES_USER: event_user
+      POSTGRES_PASSWORD: event_pass
+    depends_on:
+      - redpanda
+      - eventdb
+
+  # コンシューマー（サンプル Python アプリ）
+  consumer:
+    build:
+      context: ./consumer
+      dockerfile: Dockerfile
+    container_name: consumer
+    environment:
+      KAFKA_BOOTSTRAP: "redpanda:9092"
+      POSTGRES_HOST: eventdb
+      POSTGRES_DB: events
+      POSTGRES_USER: event_user
+      POSTGRES_PASSWORD: event_pass
+    depends_on:
+      - redpanda
+      - eventdb
+
+volumes:
+  redpanda_data:
+  eventdb_data:
